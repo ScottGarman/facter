@@ -132,6 +132,25 @@ namespace facter { namespace facts { namespace linux {
             }
             return os::suse;
         }
+
+        bs::error_code ec2;
+        if (is_regular_file(release_file::os, ec2)) {
+            static vector<tuple<boost::regex, string>> const regexs {
+                make_tuple(boost::regex("(?im)^PRETTY_NAME=\"SUSE LINUX Enterprise Server"),  string(os::suse_enterprise_server)),
+                make_tuple(boost::regex("(?im)^PRETTY_NAME=\"SUSE LINUX Enterprise Desktop"), string(os::suse_enterprise_desktop)),
+                make_tuple(boost::regex("(?im)PRETTY_NAME=\"^openSUSE"),                      string(os::open_suse)),
+            };
+
+            string contents = lth_file::read(release_file::os);
+            boost::trim(contents);
+            for (auto const& regex : regexs) {
+                if (re_search(contents, get<0>(regex))) {
+                    return get<1>(regex);
+                }
+            }
+            return os::suse;
+        }
+
         return {};
     }
 
@@ -321,19 +340,32 @@ namespace facter { namespace facts { namespace linux {
                 name == os::suse_enterprise_server ||
                 name == os::suse_enterprise_desktop ||
                 name == os::open_suse)) {
-            string contents = lth_file::read(release_file::suse);
+            string contents;
             string major;
             string minor;
-            if (re_search(contents, boost::regex("(?m)^VERSION\\s*=\\s*(\\d+)\\.?(\\d+)?"), &major, &minor)) {
-                // Check that we have a minor version; if not, use the patch level
-                if (minor.empty()) {
-                    if (!re_search(contents, boost::regex("(?m)^PATCHLEVEL\\s*=\\s*(\\d+)"), &minor)) {
+            bs::error_code ec;
+            if (is_regular_file(release_file::os, ec)) {
+                contents = lth_file::read(release_file::os);
+                if (re_search(contents, boost::regex("(?m)^VERSION_ID=\"(\\d+)\\.?(\\d+)?\""), &major, &minor)) {
+                    // If there is no minor version, use zero
+                    if (minor.empty()) {
                         minor = "0";
                     }
+                    value = major + "." + minor;
                 }
-                value = major + "." + minor;
             } else {
-                value = "unknown";
+                contents = lth_file::read(release_file::suse);
+                if (re_search(contents, boost::regex("(?m)^VERSION\\s*=\\s*(\\d+)\\.?(\\d+)?"), &major, &minor)) {
+                    // Check that we have a minor version; if not, use the patch level
+                    if (minor.empty()) {
+                        if (!re_search(contents, boost::regex("(?m)^PATCHLEVEL\\s*=\\s*(\\d+)"), &minor)) {
+                            minor = "0";
+                        }
+                    }
+                    value = major + "." + minor;
+                } else {
+                    value = "unknown";
+                }
             }
         }
         if (value.empty() && name == os::photon_os) {
